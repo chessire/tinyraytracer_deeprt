@@ -1,8 +1,5 @@
 #define _USE_MATH_DEFINES
 
-#define NOMINMAX
-
-#include <windows.h>
 #include <cmath>
 #include <limits>
 #include <iostream>
@@ -35,14 +32,15 @@ struct Sphere {
 
     bool ray_intersect(const Vec3f &orig, const Vec3f &dir, float &t0) const {
         Vec3f L = center - orig;
-        float tca = L*dir;
+		float tca = L * dir;
+		if (tca < 0) return false;
         float d2 = L*L - tca*tca;
         if (d2 > radius*radius) return false;
         float thc = sqrtf(radius*radius - d2);
         t0       = tca - thc;
-        float t1 = tca + thc;
-        if (t0 < 0) t0 = t1;
-        if (t0 < 0) return false;
+		float t1 = tca + thc;
+		if (t0 < 0) t0 = t1;
+		if (t0 < 0) return false;
         return true;
     }
 };
@@ -116,7 +114,7 @@ Vec3f cast_ray(const Vec3f &orig, const Vec3f &dir, const std::vector<Sphere> &s
 	}
 
 	Vec3f refract_color(0.f, 0.f, 0.f);
-	// compute fresnel
+	// compute fresnelt
 	float kr;
 	fresnel(dir, N, material.refractive_index, kr);
 	// compute refraction if it is not a case of total internal reflection
@@ -144,7 +142,8 @@ Vec3f cast_ray(const Vec3f &orig, const Vec3f &dir, const std::vector<Sphere> &s
         diffuse_light_intensity  += lights[i].intensity * std::max(0.f, light_dir*N);
         specular_light_intensity += powf(std::max(0.f, -reflect(-light_dir, N)*dir), material.specular_exponent)*lights[i].intensity;
     }
-    return material.diffuse_color * diffuse_light_intensity * material.albedo[0] + Vec3f(1., 1., 1.)*specular_light_intensity * material.albedo[1] + reflect_color * material.albedo[2] * kr + refract_color * material.albedo[3] * (1 - kr);
+
+    return material.diffuse_color * diffuse_light_intensity * material.albedo[0] + Vec3f(1., 1., 1.)*specular_light_intensity * material.albedo[1] + reflect_color * material.albedo[2]/* * kr*/ + refract_color * material.albedo[3]/* * (1 - kr)*/;
 }
 
 void render(const std::vector<Sphere> &spheres, const std::vector<Light> &lights) {
@@ -168,8 +167,8 @@ void render(const std::vector<Sphere> &spheres, const std::vector<Light> &lights
     ofs << "P6\n" << width << " " << height << "\n255\n";
     for (size_t i = 0; i < height*width; ++i) {
         Vec3f &c = framebuffer[i];
-        float max = std::max(c[0], std::max(c[1], c[2]));
-        if (max>1) c = c*(1./max);
+		float max = std::max(c[0], std::max(c[1], c[2]));
+		if (max > 1) c = c * (1. / max);
         for (size_t j = 0; j<3; j++) {
             ofs << (char)(255 * std::max(0.f, std::min(1.f, framebuffer[i][j])));
         }
@@ -177,21 +176,11 @@ void render(const std::vector<Sphere> &spheres, const std::vector<Light> &lights
     ofs.close();
 }
 
-static inline int64_t GetTicks()
-{
-	LARGE_INTEGER ticks;
-	if (!QueryPerformanceCounter(&ticks))
-	{
-		return 0;
-	}
-	return ticks.QuadPart;
-}
-
 int main() {
-    Material      ivory(1.0, Vec4f(0.6,  0.3, 0.1, 0.0), Vec3f(0.4, 0.4, 0.3),   50.);
+    Material      ivory(0.0, Vec4f(0.6,  0.3, 0.1, 0.0), Vec3f(0.4, 0.4, 0.3),   50.);
     Material      glass(1.5, Vec4f(0.0,  0.5, 0.1, 0.8), Vec3f(0.6, 0.7, 0.8),  125.);
-    Material red_rubber(1.0, Vec4f(0.9,  0.1, 0.0, 0.0), Vec3f(0.3, 0.1, 0.1),   10.);
-    Material     mirror(1.0, Vec4f(0.0, 10.0, 0.8, 0.0), Vec3f(1.0, 1.0, 1.0), 1425.);
+    Material red_rubber(0.0, Vec4f(0.9,  0.1, 0.0, 0.0), Vec3f(0.3, 0.1, 0.1),   10.);
+    Material     mirror(0.0, Vec4f(0.0, 10.0, 0.8, 0.0), Vec3f(1.0, 1.0, 1.0), 1425.);
 
     std::vector<Sphere> spheres;
     spheres.push_back(Sphere(Vec3f(-3,    0,   -16), 2,      ivory));
@@ -204,13 +193,7 @@ int main() {
     lights.push_back(Light(Vec3f( 30, 50, -25), 1.8));
 	lights.push_back(Light(Vec3f(30, 20, 30), 1.7));
 
-	int64_t begin_tick = GetTicks();
-
 	render(spheres, lights);
-
-	int64_t end_tick = GetTicks();
-
-	std::cout << "time : " << end_tick - begin_tick << "\n";
 
     return 0;
 }
