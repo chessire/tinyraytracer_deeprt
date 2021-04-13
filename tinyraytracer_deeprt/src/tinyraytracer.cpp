@@ -1,4 +1,8 @@
 #define _USE_MATH_DEFINES
+
+#define NOMINMAX
+
+#include <windows.h>
 #include <cmath>
 #include <limits>
 #include <iostream>
@@ -42,6 +46,28 @@ struct Sphere {
         return true;
     }
 };
+
+void fresnel(const Vec3f &I, const Vec3f &N, const float &ior, float &kr)
+{
+	float cosi = std::clamp(I * N, -1.f, 1.f);
+	float etai = 1, etat = ior;
+	if (cosi > 0) { std::swap(etai, etat); }
+	// Compute sini using Snell's law
+	float sint = etai / etat * sqrtf(std::max(0.f, 1 - cosi * cosi));
+	// Total internal reflection
+	if (sint >= 1) {
+		kr = 1;
+	}
+	else {
+		float cost = sqrtf(std::max(0.f, 1 - sint * sint));
+		cosi = fabsf(cosi);
+		float Rs = ((etat * cosi) - (etai * cost)) / ((etat * cosi) + (etai * cost));
+		float Rp = ((etai * cosi) - (etat * cost)) / ((etai * cosi) + (etat * cost));
+		kr = (Rs * Rs + Rp * Rp) / 2;
+	}
+	// As a consequence of the conservation of energy, transmittance is given by:
+	// kt = 1 - kr;
+}
 
 Vec3f reflect(const Vec3f &I, const Vec3f &N) {
     return I - N*2.f*(I*N);
@@ -87,14 +113,22 @@ Vec3f cast_ray(const Vec3f &orig, const Vec3f &dir, const std::vector<Sphere> &s
 
     if (depth>4 || !scene_intersect(orig, dir, spheres, point, N, material)) {
         return Vec3f(0.2, 0.7, 0.8); // background color
-    }
+	}
 
-    Vec3f reflect_dir = reflect(dir, N).normalize();
-    Vec3f refract_dir = refract(dir, N, material.refractive_index).normalize();
-    Vec3f reflect_orig = reflect_dir*N < 0 ? point - N*1e-3 : point + N*1e-3; // offset the original point to avoid occlusion by the object itself
-    Vec3f refract_orig = refract_dir*N < 0 ? point - N*1e-3 : point + N*1e-3;
-    Vec3f reflect_color = cast_ray(reflect_orig, reflect_dir, spheres, lights, depth + 1);
-    Vec3f refract_color = cast_ray(refract_orig, refract_dir, spheres, lights, depth + 1);
+	Vec3f refract_color(0.f, 0.f, 0.f);
+	// compute fresnel
+	float kr;
+	fresnel(dir, N, material.refractive_index, kr);
+	// compute refraction if it is not a case of total internal reflection
+	if (kr < 1) {
+		Vec3f refract_dir = refract(dir, N, material.refractive_index).normalize();
+		Vec3f refract_orig = refract_dir * N < 0 ? point - N * 1e-3 : point + N * 1e-3;
+		refract_color = cast_ray(refract_orig, refract_dir, spheres, lights, depth + 1);
+	}
+
+	Vec3f reflect_dir = reflect(dir, N).normalize();
+	Vec3f reflect_orig = reflect_dir * N < 0 ? point - N * 1e-3 : point + N * 1e-3; // offset the original point to avoid occlusion by the object itself
+	Vec3f reflect_color = cast_ray(reflect_orig, reflect_dir, spheres, lights, depth + 1);
 
     float diffuse_light_intensity = 0, specular_light_intensity = 0;
     for (size_t i=0; i<lights.size(); i++) {
@@ -110,7 +144,7 @@ Vec3f cast_ray(const Vec3f &orig, const Vec3f &dir, const std::vector<Sphere> &s
         diffuse_light_intensity  += lights[i].intensity * std::max(0.f, light_dir*N);
         specular_light_intensity += powf(std::max(0.f, -reflect(-light_dir, N)*dir), material.specular_exponent)*lights[i].intensity;
     }
-    return material.diffuse_color * diffuse_light_intensity * material.albedo[0] + Vec3f(1., 1., 1.)*specular_light_intensity * material.albedo[1] + reflect_color*material.albedo[2] + refract_color*material.albedo[3];
+    return material.diffuse_color * diffuse_light_intensity * material.albedo[0] + Vec3f(1., 1., 1.)*specular_light_intensity * material.albedo[1] + reflect_color * material.albedo[2] * kr + refract_color * material.albedo[3] * (1 - kr);
 }
 
 void render(const std::vector<Sphere> &spheres, const std::vector<Light> &lights) {
@@ -143,6 +177,16 @@ void render(const std::vector<Sphere> &spheres, const std::vector<Light> &lights
     ofs.close();
 }
 
+static inline int64_t GetTicks()
+{
+	LARGE_INTEGER ticks;
+	if (!QueryPerformanceCounter(&ticks))
+	{
+		return 0;
+	}
+	return ticks.QuadPart;
+}
+
 int main() {
     Material      ivory(1.0, Vec4f(0.6,  0.3, 0.1, 0.0), Vec3f(0.4, 0.4, 0.3),   50.);
     Material      glass(1.5, Vec4f(0.0,  0.5, 0.1, 0.8), Vec3f(0.6, 0.7, 0.8),  125.);
@@ -158,9 +202,15 @@ int main() {
     std::vector<Light>  lights;
     lights.push_back(Light(Vec3f(-20, 20,  20), 1.5));
     lights.push_back(Light(Vec3f( 30, 50, -25), 1.8));
-    lights.push_back(Light(Vec3f( 30, 20,  30), 1.7));
+	lights.push_back(Light(Vec3f(30, 20, 30), 1.7));
 
-    render(spheres, lights);
+	int64_t begin_tick = GetTicks();
+
+	render(spheres, lights);
+
+	int64_t end_tick = GetTicks();
+
+	std::cout << "time : " << end_tick - begin_tick << "\n";
 
     return 0;
 }
