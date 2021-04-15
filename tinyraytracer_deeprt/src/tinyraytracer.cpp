@@ -55,14 +55,7 @@ struct Sphere : public sdf_model {
 		if (abs(point_to_center.norm()) < EPSILON)
 			return false;
 
-		float rot_a = atanf(sqrtf(point_to_center.x * point_to_center.x + point_to_center.y + point_to_center.y) / point_to_center.z);
-		Vec3f a(cosf(rot_a), 0.f, sinf(rot_a));
-
-		float rot_b = atanf(point_to_center.y / point_to_center.x);
-		Vec3f b(cosf(rot_b), sinf(rot_b), 0.f);
-
-		float dot = a * b;
-		n = cross(a, b) * (1 / (a.norm() * a.norm() * b.norm() * b.norm() - dot * dot));
+		n = point_to_center.normalize();
 
 		return true;
 	}
