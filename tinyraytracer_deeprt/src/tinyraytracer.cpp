@@ -149,8 +149,9 @@ bool ray_marching(const Vec3f &orig, const Vec3f &dir, const std::vector<const s
 			return true;
 		}
 
-		if (depth >= MAX_DISTANCE)
-			return false;
+		// for checkboard(temp comment)
+		//if (depth >= MAX_DISTANCE)
+		//	return false;
 	}
 
 	float checkerboard_dist = std::numeric_limits<float>::max();
